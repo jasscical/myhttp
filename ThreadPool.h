@@ -35,7 +35,7 @@ private:
 inline ThreadPool::ThreadPool(size_t threads)
     :   stop(false)
 {
-    for(size_t i = 0;i<threads;++i)
+    for(size_t i = 0; i<threads; ++i)
         workers.emplace_back(
             [this]
             {
@@ -59,8 +59,7 @@ inline ThreadPool::ThreadPool(size_t threads)
         );
 }
 
-// add new work item to the pool
-// 添加线程到线程池
+// 添加 新线程 到 线程池
 template<class F, class... Args>
 auto ThreadPool::enqueue(F&& f, Args&&... args) 
     -> std::future<typename std::result_of<F(Args...)>::type>
@@ -68,18 +67,16 @@ auto ThreadPool::enqueue(F&& f, Args&&... args)
     using return_type = typename std::result_of<F(Args...)>::type;
 
     auto task = std::make_shared< std::packaged_task<return_type()> >(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...)
-        );
+            std::bind(std::forward<F>(f), std::forward<Args>(args)...) );
         
     std::future<return_type> res = task->get_future();
     {
         std::unique_lock<std::mutex> lock(queue_mutex);
 
-        // don't allow enqueueing after stopping the pool
-        // 停止线程池后，不允许排队
-        if(stop)
+        // 停止线程池后，不允许加入队列
+        if(stop){
             throw std::runtime_error("enqueue on stopped ThreadPool");
-
+        }          
         tasks.emplace([task](){ (*task)(); });
     }
     condition.notify_one();

@@ -109,7 +109,6 @@ void *accept_request(void *from_client)
 	//以上已经将起始行解析完毕
 	//url中的路径格式化到path
 	sprintf(path, "htdocs%s", url);
-	//学习到这里明天继续TODO
 	//如果path只是一个目录，默认设置为首页index.html
 	if (path[strlen(path) - 1] == '/')
 		strcat(path, "index.html");
@@ -212,8 +211,8 @@ void execute_cgi(int client, const char *path,
 				 const char *method, const char *query_string)
 {
 	char buf[1024];
-	int cgi_output[2]; //声明的读写管道，切莫被名称给忽悠，会给出图进行说明
-	int cgi_input[2];  //
+	int cgi_output[2]; //声明的读写管道
+	int cgi_input[2];  
 	pid_t pid;
 	int status;
 	int i;
@@ -535,25 +534,40 @@ int main(void)
 	//启动server socket
 	server_sock = startup(&port);
 
-	//创建epoll事件
-	int epfd, nfds;
-	//生成用于处理accept的epoll专用的文件描述符
-	epfd = epoll_create(5);
-	struct epoll_event ev, events[20];
-	ev.data.fd = server_sock;
-	//设置要处理的事件类型
-	ev.events = EPOLLIN | EPOLLET;
+	//创建epoll事件, 用于处理accept的epoll专用的文件描述符
+	int epfd, nfds;	
+	epfd = epoll_create(5); 
+	if(epfd == -1){
+		std::cout << "epoll_create error" << std::endl;
+		close(server_sock);
+		return -1;
+	}
+	
 	//注册epoll事件
-	epoll_ctl(epfd, EPOLL_CTL_ADD, server_sock, &ev);
+	struct epoll_event ev;
+	ev.data.fd = server_sock;
+	ev.events = EPOLLIN | EPOLLET; //设置要处理的事件类型为水平触发or边缘触发	
+	if(epoll_ctl(epfd, EPOLL_CTL_ADD, server_sock, &ev) == -1){
+		std::cout << "epoll_ctl error" << std::endl;
+		close(server_sock);
+		return -1;
+	}
 
-	printf("httpd running on port: %d\n", port);
 	std::cout << "httpd running on port: ......" << port << std::endl;
 
 	for( ; ;)
 	{
-		//等待epoll事件的发生
-		nfds = epoll_wait(epfd, events, 20, 500);
-		//处理所发生的所有事件
+		//侦听：等待epoll事件的发生,得到的结果存储在 events 中
+		struct epoll_event events[1024];
+		nfds = epoll_wait(epfd, events, 20, 500); 
+		if(nfds < 0){
+			if(errno == EINTR) continue; // 被信号中断
+			break; // 出错，退出
+		}else if(nfds == 0){
+			continue; // 超时，继续
+		}
+
+		//处理侦听结果(nfds)
 		for (int i = 0; i < nfds; ++i)
 		{
 			if (events[i].data.fd == server_sock) //如果新监测到一个SOCKET用户连接到了绑定的SOCKET端口，建立新的连接。
@@ -565,16 +579,16 @@ int main(void)
 					exit(1);
 				}
 				char *str = inet_ntoa(client_name.sin_addr);
-				cout << "accapt a connection from ......" << str << endl;
-
-				ev.data.fd = connfd_fd;
-				//设置用于注册的读操作事件
-				ev.events = EPOLLIN | EPOLLET;
-				//注册ev
-				epoll_ctl(epfd, EPOLL_CTL_ADD, connfd_fd, &ev);
+				cout << "accapt a new connection from ......" << str << endl;
+				
+				ev.data.fd = connfd_fd;			
+				ev.events = EPOLLIN | EPOLLET; //同时侦听新来连接socket的读和写事件
+				epoll_ctl(epfd, EPOLL_CTL_ADD, connfd_fd, &ev); //注册事件ev
 			}
 			else if (events[i].events & EPOLLIN) //如果是已经连接的用户，并且收到数据，那么进行读入。
 			{
+				char *str = inet_ntoa(client_name.sin_addr);
+				cout << "process read/write , connected from ......" << str << endl;
 				std::cout << "start worker thread ID:......" << std::this_thread::get_id() << std::endl;
 				pool.enqueue(accept_request, (void *)&connfd_fd);
 			}
